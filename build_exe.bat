@@ -14,25 +14,11 @@ if errorlevel 1 (
 )
 
 echo Installing dependencies...
-pip install pyinstaller python-dotenv requests pandas openpyxl playwright
+pip install pyinstaller python-dotenv requests pandas openpyxl
 
 echo.
-echo Downloading Playwright Chromium browser...
-python -m playwright install chromium
-
-echo.
-echo Building executable...
+echo Building executable (API mode only)...
 pyinstaller --clean lnnte_verifier.spec
-
-echo.
-echo Copying browsers to dist folder...
-if exist "%USERPROFILE%\AppData\Local\ms-playwright" (
-    xcopy "%USERPROFILE%\AppData\Local\ms-playwright" "dist\browsers\" /E /I /Y
-    echo Browsers copied successfully!
-) else (
-    echo WARNING: Playwright browsers not found.
-    echo The app will work in API mode only.
-)
 
 echo.
 echo ============================================================
@@ -42,7 +28,8 @@ echo.
 echo Output: dist\LNNTE_Verifier.exe
 echo.
 echo To distribute:
-echo 1. Zip the entire 'dist' folder
-echo 2. Share with users
+echo 1. Copy dist\LNNTE_Verifier.exe
+echo 2. Create .env file with your 2captcha API key
+echo 3. Share with users
 echo.
 pause

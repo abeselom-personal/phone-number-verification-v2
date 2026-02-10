@@ -14,10 +14,10 @@ from datetime import datetime
 from dotenv import load_dotenv, set_key
 
 from .input_processor import InputProcessor
-from .browser_automation import LNNTEAutomation, VerificationStatus
+from .browser_automation import VerificationStatus, VerificationResult
 from .output_processor import OutputProcessor, VerificationLog
 from .business_checker import SerperBusinessChecker
-from .api_verification import LNNTEApiVerifier, VerificationStatus as ApiVerificationStatus
+from .api_verification import LNNTEApiVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -98,24 +98,9 @@ class LNNTEVerifierApp:
             row=1, column=0, columnspan=3, sticky="w", pady=(5, 0)
         )
         
-        # Verification Mode Selection
-        mode_frame = ttk.LabelFrame(main_frame, text="Verification Mode", padding="10")
-        mode_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=5)
-        mode_frame.columnconfigure(1, weight=1)
-        
-        self.mode_var = tk.StringVar(value="api")
-        ttk.Radiobutton(
-            mode_frame, text="API Mode (Fast - uses 2captcha)", 
-            variable=self.mode_var, value="api"
-        ).grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(
-            mode_frame, text="Browser Mode (Manual CAPTCHA solving)", 
-            variable=self.mode_var, value="browser"
-        ).grid(row=0, column=1, sticky="w", padx=20)
-        
-        # 2captcha Settings (for API mode)
-        captcha_frame = ttk.LabelFrame(main_frame, text="2Captcha Settings (API Mode)", padding="10")
-        captcha_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=5)
+        # 2captcha Settings
+        captcha_frame = ttk.LabelFrame(main_frame, text="2Captcha API Key (Required)", padding="10")
+        captcha_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=5)
         captcha_frame.columnconfigure(1, weight=1)
         
         ttk.Label(captcha_frame, text="2Captcha API Key:").grid(row=0, column=0, padx=(0, 5), sticky="w")
@@ -138,7 +123,7 @@ class LNNTEVerifierApp:
         
         # Proxy Settings
         proxy_frame = ttk.LabelFrame(main_frame, text="Proxy Settings (Optional)", padding="10")
-        proxy_frame.grid(row=4, column=0, columnspan=3, sticky="ew", pady=5)
+        proxy_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=5)
         proxy_frame.columnconfigure(1, weight=1)
         
         ttk.Label(proxy_frame, text="Proxies:").grid(row=0, column=0, padx=(0, 5), sticky="nw")
@@ -161,7 +146,7 @@ class LNNTEVerifierApp:
         
         # Output Settings
         settings_frame = ttk.LabelFrame(main_frame, text="Output Settings", padding="10")
-        settings_frame.grid(row=5, column=0, columnspan=3, sticky="ew", pady=5)
+        settings_frame.grid(row=4, column=0, columnspan=3, sticky="ew", pady=5)
         settings_frame.columnconfigure(1, weight=1)
         
         ttk.Label(settings_frame, text="Output Format:").grid(row=0, column=0, padx=(0, 5), sticky="w")
@@ -177,7 +162,7 @@ class LNNTEVerifierApp:
         
         # Business Check (Serper API)
         api_frame = ttk.LabelFrame(main_frame, text="Business Check (Serper API)", padding="10")
-        api_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=5)
+        api_frame.grid(row=5, column=0, columnspan=3, sticky="ew", pady=5)
         api_frame.columnconfigure(1, weight=1)
         
         ttk.Label(api_frame, text="Serper API Key:").grid(row=0, column=0, padx=(0, 5), sticky="w")
@@ -207,7 +192,7 @@ class LNNTEVerifierApp:
         business_check.grid(row=2, column=0, columnspan=4, sticky="w", pady=(5, 0))
         
         control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=7, column=0, columnspan=3, pady=15)
+        control_frame.grid(row=6, column=0, columnspan=3, pady=15)
         
         self.start_btn = ttk.Button(
             control_frame, 
@@ -468,37 +453,26 @@ class LNNTEVerifierApp:
                 logger.warning("Business check enabled but no Serper API key provided - skipping")
                 do_business_check = False
             
-            # Get verification mode
-            use_api_mode = self.mode_var.get() == "api"
+            # API Mode with 2captcha
+            twocaptcha_key = self.twocaptcha_key_var.get().strip()
+            if not twocaptcha_key:
+                self._update_status("Error: 2Captcha API key required")
+                logger.error("2Captcha API key is required")
+                self._finish_verification()
+                return
             
-            if use_api_mode:
-                # API Mode with 2captcha
-                twocaptcha_key = self.twocaptcha_key_var.get().strip()
-                if not twocaptcha_key:
-                    self._update_status("Error: 2Captcha API key required for API mode")
-                    logger.error("2Captcha API key is required for API mode")
-                    self._finish_verification()
-                    return
-                
-                # Parse proxies
-                proxy_text = self.proxy_var.get().strip()
-                proxies = [p.strip() for p in proxy_text.split(",") if p.strip()] if proxy_text else None
-                
-                api_verifier = LNNTEApiVerifier(
-                    twocaptcha_api_key=twocaptcha_key,
-                    proxies=proxies,
-                    status_callback=lambda msg: self._update_captcha_status(msg)
-                )
-                logger.info("Using API mode with 2captcha")
-                if proxies:
-                    logger.info(f"Using {len(proxies)} proxies for rotation")
-            else:
-                # Browser Mode
-                automation = LNNTEAutomation(headless=False)
-                automation.set_captcha_callback(self._update_captcha_status)
-                automation.set_status_callback(lambda msg: logger.info(msg))
-                automation.start_browser()
-                logger.info("Using browser mode - solve CAPTCHA manually in browser window")
+            # Parse proxies
+            proxy_text = self.proxy_var.get().strip()
+            proxies = [p.strip() for p in proxy_text.split(",") if p.strip()] if proxy_text else None
+            
+            api_verifier = LNNTEApiVerifier(
+                twocaptcha_api_key=twocaptcha_key,
+                proxies=proxies,
+                status_callback=lambda msg: self._update_captcha_status(msg)
+            )
+            logger.info("Using API mode with 2captcha")
+            if proxies:
+                logger.info(f"Using {len(proxies)} proxies for rotation")
             
             total = len(entries)
             for i, entry in enumerate(entries):
@@ -528,21 +502,15 @@ class LNNTEVerifierApp:
                     else:
                         logger.info(f"  -> {business_result.status.value}")
                 
-                # LNNTE verification
-                if use_api_mode:
-                    self._update_captcha_status("Verifying via API...")
-                    api_result = api_verifier.verify_phone(phone)
-                    # Convert API result to browser result format for compatibility
-                    from .browser_automation import VerificationResult as BrowserResult
-                    result = BrowserResult(
-                        phone=api_result.phone,
-                        status=VerificationStatus(api_result.status.value),
-                        raw_message=api_result.raw_response,
-                        error=api_result.error
-                    )
-                else:
-                    self._update_captcha_status("Waiting for CAPTCHA...")
-                    result = automation.verify_phone(phone)
+                # LNNTE verification via API
+                self._update_captcha_status("Verifying via API...")
+                api_result = api_verifier.verify_phone(phone)
+                result = VerificationResult(
+                    phone=api_result.phone,
+                    status=VerificationStatus(api_result.status.value),
+                    raw_message=api_result.raw_response,
+                    error=api_result.error
+                )
                 
                 output_processor.add_result(
                     entry['row_index'],
@@ -593,8 +561,6 @@ class LNNTEVerifierApp:
             self.root.after(0, lambda: messagebox.showerror("Error", f"Verification failed:\n{str(e)}"))
         
         finally:
-            if automation:
-                automation.close_browser()
             self._finish_verification()
     
     def _finish_verification(self):

@@ -55,51 +55,16 @@ def main():
     ):
         return 1
     
-    # Step 3: Install Playwright and download Chromium
-    if not run_command(
-        f"{sys.executable} -m playwright install chromium",
-        "Downloading Playwright Chromium browser"
-    ):
-        print("WARNING: Playwright browser download failed.")
-        print("The app will work in API mode only without browsers.")
-    
-    # Step 4: Find Playwright browsers location
-    browsers_src = None
-    possible_paths = [
-        Path.home() / ".cache" / "ms-playwright",  # Linux
-        Path.home() / "AppData" / "Local" / "ms-playwright",  # Windows
-        Path.home() / "Library" / "Caches" / "ms-playwright",  # macOS
-    ]
-    
-    for path in possible_paths:
-        if path.exists():
-            browsers_src = path
-            print(f"Found Playwright browsers at: {browsers_src}")
-            break
-    
-    # Step 5: Build the executable
+    # Step 3: Build the executable (API mode only - no browsers needed)
     if not run_command(
         f"{sys.executable} -m PyInstaller --clean lnnte_verifier.spec",
         "Building executable with PyInstaller"
     ):
         return 1
     
-    # Step 6: Copy browsers to dist folder
     dist_dir = project_root / "dist"
-    browsers_dest = dist_dir / "browsers"
     
-    if browsers_src and browsers_src.exists():
-        print(f"\n>>> Copying Playwright browsers to dist folder...")
-        if browsers_dest.exists():
-            shutil.rmtree(browsers_dest)
-        shutil.copytree(browsers_src, browsers_dest)
-        print(f"Browsers copied to: {browsers_dest}")
-    else:
-        print("\nWARNING: Playwright browsers not found.")
-        print("The executable will work in API mode only.")
-        print("For browser mode, manually copy ms-playwright folder to 'browsers' next to .exe")
-    
-    # Step 7: Copy .env template
+    # Step 4: Copy .env template
     env_file = project_root / ".env"
     env_example = project_root / ".env.example"
     
@@ -118,38 +83,29 @@ PROXIES=
             f.write(example_content)
         print("Created .env.example in dist folder")
     
-    # Step 8: Create README for distribution
+    # Step 5: Create README for distribution
     readme_content = """# LNNTÉ Phone Number Verifier
 
 ## Quick Start
 
 1. Copy `.env.example` to `.env` and add your API keys:
-   - `Captcha_API_KEY`: Your 2captcha.com API key (required for API mode)
+   - `Captcha_API_KEY`: Your 2captcha.com API key (REQUIRED)
    - `SERPER_API_KEY`: Your serper.dev API key (optional, for business check)
 
 2. Run `LNNTE_Verifier.exe`
 
-## Modes
+## Features
 
-### API Mode (Recommended)
-- Fast, automated verification
-- Requires 2captcha API key
-- No browser needed
-
-### Browser Mode
-- Opens a browser window
-- Requires manual CAPTCHA solving
-- Requires the `browsers` folder next to the .exe
+- Fast, automated LNNTE verification using 2captcha
+- Business phone detection using Serper API
+- Certainty scoring for callable phones
+- CSV/Excel output with all original data preserved
 
 ## Troubleshooting
 
-If browser mode doesn't work:
-1. Make sure the `browsers` folder exists next to the .exe
-2. The folder should contain Chromium from Playwright
-
-For API mode issues:
-1. Check your 2captcha balance
-2. Verify your API key is correct
+1. Check your 2captcha balance at 2captcha.com
+2. Verify your API key is correct in the .env file
+3. Make sure your input file has a 'Téléphone' or 'Portable' column
 """
     
     with open(dist_dir / "README.txt", 'w') as f:

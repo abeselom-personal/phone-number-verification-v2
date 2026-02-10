@@ -22,7 +22,6 @@ env/
 # PyInstaller
 build/
 dist/
-*.spec
 *.manifest
 
 # Playwright browsers (too large for git)
@@ -32,7 +31,7 @@ browsers/
 *_verified_*.csv
 *_verified_*.xlsx
 verification_log_*.csv
-
+dist.zip
 # Logs
 *.log
 
