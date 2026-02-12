@@ -475,32 +475,21 @@ class LNNTEVerifierApp:
                 logger.info(f"Using {len(proxies)} proxies for rotation")
             
             total = len(entries)
+            
+            # Store results for later business check
+            lnnte_results = {}  # phone -> (entry, result)
+            
+            # PHASE 1: Do ALL LNNTE verifications first (CAPTCHA expires quickly)
+            logger.info("=== Phase 1: LNNTE Verification (time-sensitive) ===")
+            self._update_status("Phase 1: LNNTE verification...")
+            
             for i, entry in enumerate(entries):
                 if self.should_stop:
                     logger.info("Verification stopped by user")
                     break
                 
                 phone = entry['normalized_phone']
-                self._update_progress(i + 1, total, f"Verifying {phone}")
-                
-                # Business check with Société fuzzy matching
-                business_result = None
-                if do_business_check and business_checker:
-                    # Get Société field from original data for fuzzy matching
-                    row_index = entry['row_index']
-                    societe = ""
-                    if row_index in df.index:
-                        societe = str(df.at[row_index, 'Société']) if 'Société' in df.columns else ""
-                        if societe == 'nan':
-                            societe = ""
-                    
-                    logger.info(f"Checking if {phone} is a business (Société: {societe or 'N/A'})...")
-                    business_result = business_checker.check_phone(phone, societe)
-                    if business_result.status.value == "Business":
-                        match_info = f" (match: {business_result.match_score:.0f}%)" if business_result.societe_matched else ""
-                        logger.info(f"  -> Business: {business_result.business_name or 'Yes'}{match_info}")
-                    else:
-                        logger.info(f"  -> {business_result.status.value}")
+                self._update_progress(i + 1, total, f"[1/2] LNNTE: {phone}")
                 
                 # LNNTE verification via API
                 self._update_captcha_status("Verifying via API...")
@@ -512,6 +501,30 @@ class LNNTEVerifierApp:
                     error=api_result.error
                 )
                 
+                lnnte_results[phone] = (entry, result)
+                verification_log.log_attempt(phone, result.status.value, result.error)
+                self._update_captcha_status("Ready for next")
+            
+            # PHASE 2: Do ALL Serper business checks (no time pressure)
+            logger.info("=== Phase 2: Business Check (Serper Places API) ===")
+            self._update_status("Phase 2: Business check...")
+            
+            for i, (phone, (entry, result)) in enumerate(lnnte_results.items()):
+                if self.should_stop:
+                    logger.info("Business check stopped by user")
+                    break
+                
+                self._update_progress(i + 1, len(lnnte_results), f"[2/2] Business: {phone}")
+                
+                business_result = None
+                if do_business_check and business_checker:
+                    logger.info(f"Checking if {phone} is a business...")
+                    business_result = business_checker.check_phone(phone)
+                    if business_result.status.value == "Business":
+                        logger.info(f"  -> Office: {business_result.business_name or 'Yes'}")
+                    else:
+                        logger.info(f"  -> Cell")
+                
                 output_processor.add_result(
                     entry['row_index'],
                     phone,
@@ -519,10 +532,6 @@ class LNNTEVerifierApp:
                     result,
                     business_result
                 )
-                
-                verification_log.log_attempt(phone, result.status.value, result.error)
-                
-                self._update_captcha_status("Ready for next")
             
             output_path = OutputProcessor.generate_output_filename(
                 self.input_file,

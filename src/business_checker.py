@@ -34,11 +34,11 @@ class BusinessCheckResult:
 
 class SerperBusinessChecker:
     """
-    Checks if a phone number belongs to a business using Serper API.
-    Searches Google for the phone number and analyzes results.
+    Checks if a phone number belongs to a business using Serper Places API.
+    Searches Google Places for the phone number - if found, it's a business (Office).
     """
     
-    SERPER_API_URL = "https://google.serper.dev/search"
+    SERPER_PLACES_URL = "https://google.serper.dev/places"
     
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -76,24 +76,22 @@ class SerperBusinessChecker:
         self._current_societe = societe.strip() if societe else ""
         
         try:
-            search_query = f'"{phone}"'
-            
+            # Use just the phone number for Places search
             headers = {
                 'X-API-KEY': self.api_key,
                 'Content-Type': 'application/json'
             }
             
             payload = {
-                "q": search_query,
+                "q": phone,
                 "gl": "ca",
-                "hl": "en",
-                "num": 10
+                "autocorrect": False
             }
             
-            logger.info(f"Searching Serper for: {phone}")
+            logger.info(f"Searching Serper Places for: {phone}")
             
             response = requests.post(
-                self.SERPER_API_URL,
+                self.SERPER_PLACES_URL,
                 headers=headers,
                 json=payload,
                 timeout=15
@@ -168,132 +166,40 @@ class SerperBusinessChecker:
     
     def _analyze_results(self, phone: str, data: dict, societe: str = "") -> BusinessCheckResult:
         """
-        Analyze Serper search results to determine if phone is a business.
+        Analyze Serper Places API results to determine if phone is a business.
+        
+        Simple logic: If Places API returns results -> Office, if no results -> Cell.
         
         Args:
             phone: Original phone number
-            data: Serper API response data
-            societe: Company name from input to fuzzy match
+            data: Serper Places API response data
+            societe: Company name (unused)
             
         Returns:
             BusinessCheckResult
         """
-        organic_results = data.get('organic', [])
-        knowledge_graph = data.get('knowledgeGraph', {})
         places = data.get('places', [])
         
-        best_match_score = 0.0
-        societe_matched = False
-        
         if places:
+            # Found a place listing -> Office
             place = places[0]
-            place_name = place.get('title', '')
+            place_name = place.get('title', 'Unknown Business')
+            address = place.get('address', '')
             
-            if societe:
-                match_score = self._fuzzy_match(societe, place_name)
-                if match_score >= 50:
-                    societe_matched = True
-                    best_match_score = max(best_match_score, match_score)
-            
+            logger.info(f"Found place for {phone}: {place_name} -> Office")
             return BusinessCheckResult(
                 phone=phone,
                 status=BusinessStatus.IS_BUSINESS,
                 business_name=place_name,
-                source="Google Places",
-                match_score=best_match_score if societe_matched else 70.0,
-                societe_matched=societe_matched
+                source=f"Google Places: {address}" if address else "Google Places",
+                match_score=95.0
             )
-        
-        if knowledge_graph:
-            title = knowledge_graph.get('title', '')
-            kg_type = knowledge_graph.get('type', '').lower()
-            
-            if societe:
-                match_score = self._fuzzy_match(societe, title)
-                if match_score >= 50:
-                    societe_matched = True
-                    best_match_score = max(best_match_score, match_score)
-            
-            business_types = ['company', 'business', 'organization', 'corporation', 
-                           'store', 'restaurant', 'service', 'shop']
-            
-            if any(bt in kg_type for bt in business_types):
-                return BusinessCheckResult(
-                    phone=phone,
-                    status=BusinessStatus.IS_BUSINESS,
-                    business_name=title,
-                    source="Knowledge Graph",
-                    match_score=best_match_score if societe_matched else 65.0,
-                    societe_matched=societe_matched
-                )
-        
-        if organic_results:
-            business_indicators = [
-                'business', 'company', 'inc', 'ltd', 'corp', 'llc',
-                'store', 'shop', 'restaurant', 'service', 'clinic',
-                'office', 'agency', 'firm', 'group', 'solutions',
-                'contact us', 'call us', 'our phone', 'reach us',
-                'hours of operation', 'business hours'
-            ]
-            
-            # Check for société match in organic results
-            for result in organic_results[:5]:
-                result_title = result.get('title', '')
-                result_snippet = result.get('snippet', '')
-                
-                if societe:
-                    title_match = self._fuzzy_match(societe, result_title)
-                    snippet_match = self._fuzzy_match(societe, result_snippet)
-                    match_score = max(title_match, snippet_match)
-                    
-                    if match_score >= 50:
-                        societe_matched = True
-                        best_match_score = max(best_match_score, match_score)
-            
-            for result in organic_results[:5]:
-                title = result.get('title', '').lower()
-                snippet = result.get('snippet', '').lower()
-                link = result.get('link', '').lower()
-                
-                combined_text = f"{title} {snippet} {link}"
-                
-                matches = sum(1 for ind in business_indicators if ind in combined_text)
-                
-                if matches >= 2:
-                    return BusinessCheckResult(
-                        phone=phone,
-                        status=BusinessStatus.IS_BUSINESS,
-                        business_name=result.get('title'),
-                        source="Organic Search",
-                        match_score=best_match_score if societe_matched else 60.0,
-                        societe_matched=societe_matched
-                    )
-            
-            # If société matched but no strong business indicators, still mark as business
-            if societe_matched:
-                return BusinessCheckResult(
-                    phone=phone,
-                    status=BusinessStatus.IS_BUSINESS,
-                    business_name=organic_results[0].get('title') if organic_results else societe,
-                    source="Société Match",
-                    match_score=best_match_score,
-                    societe_matched=True
-                )
-            
-            # Has search results but no société match - likely personal
+        else:
+            # No place results -> Cell
+            logger.info(f"No places found for {phone} -> Cell")
             return BusinessCheckResult(
                 phone=phone,
                 status=BusinessStatus.NOT_BUSINESS,
-                source="No Société Match",
-                match_score=30.0,
-                societe_matched=False
+                source="No place listing found",
+                match_score=90.0
             )
-        
-        # No search results - likely personal phone
-        return BusinessCheckResult(
-            phone=phone,
-            status=BusinessStatus.NOT_BUSINESS,
-            source="No search results",
-            match_score=20.0,
-            societe_matched=False
-        )
